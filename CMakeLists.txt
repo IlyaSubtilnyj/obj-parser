@@ -12,10 +12,10 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x)
 FetchContent_MakeAvailable(SFML)
 
-include_directories(submodules/matrix/src)
+include_directories(submodules/matrix/src src/Model src/Scene)
 link_directories(${CMAKE_SOURCE_DIR}/submodules/matrix)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp src/Model/Model.hpp src/Model/Model.cpp src/Scene/Scene.hpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE sfml-graphics sfml-audio sfml-window sfml-network sfml-system libsimplematrix.a)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
