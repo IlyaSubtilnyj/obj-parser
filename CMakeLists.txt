@@ -15,7 +15,7 @@ FetchContent_MakeAvailable(SFML)
 include_directories(submodules/matrix/src)
 link_directories(${CMAKE_SOURCE_DIR}/submodules/matrix)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp src/parser/parser.hpp src/parser/parser.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE sfml-graphics sfml-audio sfml-window sfml-network sfml-system libsimplematrix.a)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
