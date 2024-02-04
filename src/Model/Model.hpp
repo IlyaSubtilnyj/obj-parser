@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <SFML/Graphics.hpp>
 #include <vector>
 
@@ -9,7 +10,11 @@
 class ModelInterface: public sf::Drawable
 {
     public:
-    virtual int setWorldTransform(simple_matrix::matrix&) = 0;
+    virtual int setWorldTransform() = 0;
+    virtual int setCameraProps() = 0;
+    virtual int setProjectionTransform() = 0;
+    virtual int setViewportTransform() = 0;
+    virtual void turnTheClock(sf::Time) = 0;
     virtual void goOnStage(sf::RenderTarget& stage) = 0;
     protected:
     virtual void draw(sf::RenderTarget& target, sf::RenderStates states) const = 0;
@@ -19,29 +24,34 @@ class StubModel: public ModelInterface
 {
     
     protected:
-
     std::vector<simple_matrix::matrix> daVertexes;
     std::vector<std::array<int, 4>> daFaces;
-
     std::vector<simple_matrix::matrix> change_matrix_vec;
 
     //<--Transformations-->
     simple_matrix::matrix worldTransform;
+    simple_matrix::matrix cameraTransform;
+    simple_matrix::matrix projectionMatrix;
+    simple_matrix::matrix viewportMatrix;
 
     private:
     bool is_transformed;
 
     public:
-    virtual int setWorldTransform(simple_matrix::matrix&) override;
-    virtual void goOnStage(sf::RenderTarget& stage) override;
-    protected:
-    virtual void draw(sf::RenderTarget &target, sf::RenderStates states) const override;
+    virtual int setWorldTransform() override;
+    virtual int setCameraProps() override;
+    virtual int setProjectionTransform() override;
+    virtual int setViewportTransform() override;
 
+    public:
+        virtual void turnTheClock(sf::Time) override;
+        virtual void goOnStage(sf::RenderTarget& stage) override;
+        protected:
+        virtual void draw(sf::RenderTarget &target, sf::RenderStates states) const override;
     protected:
-    void transformed();
-    int isTransformed() const;
-
-    void Transform();
+        void transformed();
+        int isTransformed() const;
+        void Transform();
 
     private:
     void stubfillVertexesProperty() {
@@ -69,7 +79,7 @@ class StubModel: public ModelInterface
         for (size_t i = 0; i < daVertexes.size(); i++)
         {
             auto& vec = daVertexes.at(i);
-            this->daVertexes.push_back({1, 4, {vec[0], vec[1], vec[2], vec[3]}});   
+            this->daVertexes.push_back({4, 1, {vec[0], vec[1], vec[2], vec[3]}});   
         }
 
     }
@@ -86,5 +96,18 @@ class StubModel: public ModelInterface
     {
         stubfillVertexesProperty(),
         stubfillFacesProperty();
+        setWorldTransform();
+        setCameraProps();
+        setProjectionTransform();
+        setViewportTransform();
+        change_matrix_vec.clear();
+        for (auto& vec : daVertexes)
+        {
+            auto init = worldTransform * vec;
+            auto result = cameraTransform * init;
+            auto res1 =  projectionMatrix * result;
+            auto res2 = viewportMatrix * res1;
+            change_matrix_vec.push_back(res2);
+        }  
     }
 };
