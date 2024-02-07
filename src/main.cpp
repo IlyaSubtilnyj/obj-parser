@@ -1,13 +1,16 @@
 #include <SFML/Graphics.hpp>
 #include <array>
+#include <functional>
 #include <vector>
 #include "Model/Model.hpp"
+#include "Scene/Scene.hpp"
 
 using namespace simple_matrix;
 
 int main(int argc, char** argv)
 {
-    StubModel stubModel;
+
+    Scene Scene(std::make_unique<StubModel>(), 1);
 
     sf::RenderWindow window(sf::VideoMode(1920, 1080), "SFML works!");
     sf::Clock clock;
@@ -22,11 +25,14 @@ int main(int argc, char** argv)
         }
 
         sf::Time elapsed = clock.restart();
-        stubModel.turnTheClock(elapsed);
+        auto promise = Scene.turnTheClock(elapsed);
         sf::sleep(sf::seconds(0.03));
 
         window.clear();
-        stubModel.goOnStage(window);
+        promise.then([&](){
+            Scene.takeTheStage(window);
+        });
+        Scene.takeTheStage(window);
         window.display();
     }
 
