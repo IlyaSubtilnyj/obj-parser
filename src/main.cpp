@@ -4,17 +4,21 @@
 #include <vector>
 #include "Model/Model.hpp"
 #include "Scene/Scene.hpp"
+#include <iostream>
+#include <string>
+#include "parser/parser.hpp"
 
 using namespace simple_matrix;
 
 int main(int argc, char** argv)
 {
-
     Scene Scene(std::make_unique<StubModel>(), 1);
 
     sf::RenderWindow window(sf::VideoMode(1920, 1080), "SFML works!");
     sf::Clock clock;
-
+    
+    parser::ObjParser* modelParser = new parser::ObjParser("/home/ilya/cprojects/cmake-sfml-project/resources/model.obj");
+    modelParser->parse();
     while (window.isOpen())
     {
         sf::Event event;
@@ -35,6 +39,6 @@ int main(int argc, char** argv)
         Scene.takeTheStage(window);
         window.display();
     }
-
+    
     return 0;
 }
