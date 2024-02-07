@@ -1,58 +1,32 @@
 #include "parser.hpp"
 
-#include <array>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/regex.hpp>
-#include <iostream>
 #include <fstream>
-#include <sstream>
-#include <stack>
 
 namespace parser {
 
-    void parse_string(std::string& line, vectore_store& store) {
-        boost::regex pattern("-?(\\d+\\.)?\\d+");
-        boost::sregex_iterator iter(line.begin(), line.end(), pattern);
-        boost::sregex_iterator end;
-        std::array<double, 4> array;
-        int count{};
-        while (iter != end) {
-            array[count] = std::stod(iter->str());
-            iter++; count++;
-        }
-        if (count < 4)
-            array[count] = 1;
-        store.push_back({array.at(0), array.at(1), array.at(2), array.at(3)});
+    void Pipeline::bind(std::function<bool(std::string)> pipe) {
+        _pipeline.push_back(pipe);
     }
 
-    void parse_string_array(std::string& line, array_vector_store& store) {
-        boost::regex pattern("\\d+(\\/(\\d+\\/)?\\d+)?");
-        boost::sregex_iterator iter(line.begin(), line.end(), pattern);
-        boost::sregex_iterator end;
-        std::stack<std::array<int, 3>> face_vertex_stack;
-        std::array<int, 3> array{};
-        int count{};
-        while (iter != end) {
-            std::string substring = iter->str();
-            boost::regex sub_pattern("\\d+");
-            boost::sregex_iterator sub_iter(substring.begin(), substring.end(), sub_pattern);
-            int sub_count{};
-            while (sub_iter != end) {
-                int i = std::stoi(sub_iter->str());
-                array[sub_count] = i;
-                sub_iter++; sub_count++;
-            }
-            if (sub_count == 2) {
-                int swap_value = array[1];
-                array[1] = 0;
-                array[2] = swap_value;
-            }
-            face_vertex_stack.push(std::move(array));
-            iter++; count++;
+    void Pipeline::pushThrough(std::string& line) {
+        for (auto& pipe : _pipeline)
+        {
+            if (pipe(line)) break;
         }
-        //how handle this?
-        // if (count < 4)
-        //     array[count] = 1;
+    }
+
+    ObjParser::ObjParser(std::string&& object_file)
+    : obj_file_name(std::move(object_file))
+    {
+        pipeline_init();
+    }
+
+    ObjParser::ObjParser(std::string& object_file)
+    : obj_file_name(object_file)
+    {
+        pipeline_init();
     }
 
     void ObjParser::parse() {
@@ -60,23 +34,86 @@ namespace parser {
         std::ifstream file(this->obj_file_name);
         if (file.is_open()) {
             while (std::getline(file, line)) {
-                
-                if (boost::starts_with(line, "v ")) {
-                    parse_string(line, this->vertexStore);    
-                }
-                else if (boost::starts_with(line, "vt")) {
-                    parse_string(line, this->vertexTextureStore);
-                }
-                else if (boost::starts_with(line, "vn")) {
-                    parse_string(line, this->vertexNormalStore);
-                }
-                else if (boost::starts_with(line, "f ")) {
-                    parse_string_array(line, this->faceStore);
-                }
-
+                pushThrough(line);
             }
             file.close();
         }
+    }
+
+    void ObjParser::parseAsVertex(std::string& fstring, vectore_store_t& store) {
+        const static boost::regex VERTEX_PATTERN("-?(\\d+\\.)?\\d+");
+
+        vertex_t vertex;
+        boost::sregex_iterator iter(fstring.begin(), fstring.end(), VERTEX_PATTERN);
+        boost::sregex_iterator end;
+
+        int oper_coo_index{};
+        while (iter != end) {
+            vertex[oper_coo_index] = std::stod(iter->str());
+            iter++; oper_coo_index++;
+        }
+        if (oper_coo_index < 4) {
+            vertex[oper_coo_index] = 1;
+        }
+        
+        store.push_back(std::move(vertex));
+    }
+
+    void ObjParser::parseAsFace(std::string& fstring, face_store_t& store) {
+        const static boost::regex FACE_ELEMENT_PATTERN("\\d+(\\/(\\d+\\/)?\\d+)?");
+
+        face_t face;
+        boost::sregex_iterator iter(fstring.begin(), fstring.end(), FACE_ELEMENT_PATTERN);
+        boost::sregex_iterator end;
+
+        int oper_coo_index{};
+        while (iter != end) {
+            const static boost::regex VERTEX_INDEX_PATTERN("\\d+");
+            
+            std::string substring = iter->str();
+            boost::sregex_iterator sub_iter(substring.begin(), substring.end(), VERTEX_INDEX_PATTERN);
+
+            int vertex_index = std::stoi(sub_iter->str());
+            face[oper_coo_index] = vertex_index;
+
+            iter++; oper_coo_index++;
+        }
+        if (oper_coo_index < 4) {
+            face[oper_coo_index] = 0;
+        }
+
+        store.push_back(std::move(face));
+    }
+
+    void ObjParser::pipeline_init() {
+        this->bind([&](std::string fstring){
+            if (boost::starts_with(fstring, "v ")) {
+                this->parseAsVertex(fstring, this->vertexStore);
+                return true;
+            }
+            return false;
+        });
+        this->bind([&](std::string fstring){
+            if (boost::starts_with(fstring, "vt ")) {
+                this->parseAsVertex(fstring, this->textureStore);
+                return true;
+            }
+            return false;
+        });
+        this->bind([&](std::string fstring){
+            if (boost::starts_with(fstring, "vn ")) {
+                this->parseAsVertex(fstring, this->normalStore);
+                return true;
+            }
+            return false;
+        });
+        this->bind([&](std::string fstring){
+            if (boost::starts_with(fstring, "f ")) {
+                this->parseAsFace(fstring, this->faceStore);
+                return true;
+            }
+            return false;
+        });
     }
     
 }
