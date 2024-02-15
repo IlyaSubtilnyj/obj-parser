@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <functional>
+#include <math.h>
 #include <memory>
 #include <SFML/Graphics.hpp>
 #include <SFML/System.hpp>
@@ -10,22 +11,33 @@
 #include <future>
 
 #include "matrix.hpp"
-#include "Model.hpp"
+#include "../parser/parser.hpp"
 
 class Scene: public sf::Drawable
  {
+    public:
+        simple_matrix::matrix eye;
     protected:
         const int _n;
         int _elapsed;
     protected:
-        std::unique_ptr<ModelInterface> _modele;
+        std::shared_ptr<ModelInterface> _modele;
+    protected:
+        const simple_matrix::matrix up;
+        const simple_matrix::matrix target;
+        const double schera_radius;
     public:
-        Scene(std::unique_ptr<ModelInterface> modele, double scaleFactor)
+        Scene(std::shared_ptr<ModelInterface> modele, double scaleFactor)
         :   
             _n(4),
             _elapsed(0),
-            _modele(std::move(modele))
+            _modele(std::move(modele)), 
+            schera_radius(80.0),
+            up(1, 4, std::initializer_list<double>{0, 1, 0, 1}),
+            target(1, 4, std::initializer_list<double>{0, 0, 0, 1})
         {    
+            eye = simple_matrix::matrix(1, 4, std::initializer_list<double>{0, 0, schera_radius, 1});
+            std::cout << this->target << std::endl;
             worldTransform = simple_matrix::matrix({static_cast<simple_matrix::uint>(_n), static_cast<simple_matrix::uint>(_n),
             std::initializer_list<double>{
                 scaleFactor, 0, 0, 0,
@@ -40,8 +52,9 @@ class Scene: public sf::Drawable
                     worldTransform * simple_matrix::matrix({4, 1, {vec[0], vec[1], vec[2], vec[3]}})
                 );
             }
-
-            setCameraProps(0, 5);
+            std::cout << this->eye << std::endl;
+            setCameraProps();
+            std::cout << this->eye << std::endl;
             setProjectionTransform();
             setViewportTransform();
         }
@@ -63,14 +76,14 @@ class Scene: public sf::Drawable
             }
 
             void then(std::function<void()> callback) {
-                accamulate_future.get();
+                accamulate_future.wait();
                 callback();
             }
         };
 
     protected:
 
-        int setCameraProps(double xpos, double zpos);
+        int setCameraProps();
         int setProjectionTransform();
         int setViewportTransform();
         
@@ -83,10 +96,12 @@ class Scene: public sf::Drawable
 
         std::vector<simple_matrix::matrix> change_matrix_vec;
         std::vector<std::vector<sf::Vertex>> draw_coordinates;
+
     protected:
         void fitTheClock();
     public:
-        virtual GatherScenePromise turnTheClock(sf::Time);
+        void turnTheClock(sf::Time timer);
+        Scene::GatherScenePromise turkTheClockDelay(sf::Time time);
         virtual void takeTheStage(sf::RenderTarget& stage);
     protected:
         virtual void draw(sf::RenderTarget& target, sf::RenderStates states) const;

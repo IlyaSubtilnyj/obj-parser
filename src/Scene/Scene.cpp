@@ -7,18 +7,12 @@
 #include <memory>
 
 void Scene::fitTheClock() {
-    static double angle = 0;
-    const static double radius = 5.0;
-    angle += 3;
-    if (angle >= 360) angle = 0;
-    double ex = sin(angle * M_PI / 180) * radius;
-    double ez = cos(angle * M_PI / 180) * radius;
-    setCameraProps(ex, ez);
+    setCameraProps();
     Transform(); 
     return;
 }
 
-Scene::GatherScenePromise Scene::turnTheClock(sf::Time timer) {
+Scene::GatherScenePromise Scene::turkTheClockDelay(sf::Time timer) {
     int mill = timer.asMilliseconds();
     this->_elapsed += mill;
     if (this->_elapsed > 28) {
@@ -37,15 +31,62 @@ Scene::GatherScenePromise Scene::turnTheClock(sf::Time timer) {
     }
 }
 
+void Scene::turnTheClock(sf::Time timer) {
+    int mill = timer.asMilliseconds();
+    this->_elapsed += mill;
+    if (this->_elapsed > 28) {
+        fitTheClock();
+    }
+}
+
 void Scene::takeTheStage(sf::RenderTarget& stage) {
     stage.draw(*this, sf::RenderStates::Default);
+}
+
+inline void line(int x0, int y0, int x1, int y1, sf::RenderTarget& target) {
+    bool steep = false;
+    if (std::abs(x0-x1)<std::abs(y0-y1)) {
+        std::swap(x0, y0);
+        std::swap(x1, y1);
+        steep = true;
+    }
+    if (x0>x1) {
+        std::swap(x0, x1);
+        std::swap(y0, y1);
+    }
+    int dx = x1-x0;
+    int dy = y1-y0;
+    int derror2 = std::abs(dy)*2;
+    int error2 = 0;
+    int y = y0;
+    sf::Vertex point;
+    point.color = sf::Color::White;
+    for (int x=x0; x<=x1; x++) {
+        if (steep) {
+            point.position.x = y;
+            point.position.y = x;
+            target.draw(&point, 1, sf::Points);
+        } else {
+            point.position.x = x;
+            point.position.y = y;
+            target.draw(&point, 1, sf::Points);
+        }
+        error2 += derror2;
+
+        if (error2 > dx) {
+            y += (y1>y0?1:-1);
+            error2 -= dx*2;
+        }
+    }
 }
 
 void Scene::draw(sf::RenderTarget& target, sf::RenderStates states) const {
     for (int i = 0; i < draw_coordinates.size(); i++)
     {
         auto& oper_vert_mas = draw_coordinates[i];
-        target.draw(oper_vert_mas.data(), oper_vert_mas.size(), sf::LineStrip);
+        for (int j = 0; j < oper_vert_mas.size() - 1; j++) {
+            line(oper_vert_mas.at(j).position.x, oper_vert_mas.at(j).position.y, oper_vert_mas.at(j + 1).position.x, oper_vert_mas.at(j + 1).position.y, target);
+        }
     }
 }
 
@@ -53,7 +94,8 @@ void Scene::transformed() { is_transformed = !is_transformed; }
 int Scene::isTransformed() const { return is_transformed; }
 void Scene::Transform() {
     change_matrix_vec.clear();   
-    for (auto& vec : modelVertexes) {
+    for (int i = 0; i < modelVertexes.size(); i++) {
+        auto& vec = modelVertexes[i];
         auto first = worldTransform * vec;
         auto result = cameraTransform * first;
         auto res1 =  projectionMatrix * result;
@@ -63,10 +105,10 @@ void Scene::Transform() {
     }
     this->draw_coordinates.clear();
     auto& daFaces = _modele->getFaces();
-    for (size_t i = 0; i < daFaces.size(); i++)
+    for (int i = 0; i < daFaces.size(); i++)
     {
         auto& oper_face = daFaces.at(i);
-        auto oper_face_vertex_count = daFaces.at(i).size();
+        auto oper_face_vertex_count = (daFaces.at(i)[3] == 0) ? 3 : daFaces.at(i).size();
         std::vector<sf::Vertex> vec(oper_face_vertex_count+1);
         int j;
         for (j = 0; j < oper_face_vertex_count; j++)
@@ -97,7 +139,7 @@ matrix vectorMultiplication(matrix vector1, matrix vector2) {
     assert(vector1.n() == vector2.n());
     matrix result(1, 4); result.set(0, 3, 1);
     result.set(0, 0, vector1.get(0, 1) * vector2.get(0, 2) - vector2.get(0, 1) * vector1.get(0, 2));
-    result.set(0, 1, vector1.get(0, 0) * vector2.get(0, 2) - vector2.get(0, 0) * vector1.get(0, 2));
+    result.set(0, 1, vector1.get(0, 2) * vector2.get(0, 0) - vector2.get(0, 2) * vector1.get(0, 0));
     result.set(0, 2, vector1.get(0, 0) * vector2.get(0, 1) - vector2.get(0, 0) * vector1.get(0, 1));
     return result;
 }
@@ -110,13 +152,19 @@ double scalarVectorMultiplication(matrix vector1, matrix vector2) {
     return result;
 }
 
-int Scene::setCameraProps(double xpos, double zpos) {
-    matrix eye(1, 4, std::initializer_list<double>({xpos, 1, zpos, 1}));
-    matrix target(1, 4, std::initializer_list<double>{0.5, 0, 0, 1});
-    matrix up(1, 4, std::initializer_list<double>{0, 1, 0, 1});
+int Scene::setCameraProps() {
+    std::cout << target << std::endl;
+    std::cout << eye << std::endl;
+
     matrix ZAxis = vectorNormalize(eye - target);
+    std::cout << ZAxis << std::endl;
+
     matrix XAxis = vectorNormalize(vectorMultiplication(up, ZAxis));
-    matrix YAxis = up;
+    std::cout << XAxis << std::endl;
+
+    matrix YAxis = vectorNormalize(vectorMultiplication(XAxis, ZAxis));
+    std::cout << YAxis << std::endl;
+
     this->cameraTransform = matrix(4, 4);
     cameraTransform.set_row(0, XAxis.get_row(0));
     cameraTransform.set_row(1, YAxis.get_row(0));
@@ -128,6 +176,7 @@ int Scene::setCameraProps(double xpos, double zpos) {
     cameraTransform.set(3, 1, 0);
     cameraTransform.set(3, 2, 0);
     cameraTransform.set(3, 3, 1);
+    std::cout << this->cameraTransform  << std::endl;
     return 0;
 }
 
@@ -135,7 +184,7 @@ int Scene::setProjectionTransform() {
     const double aspect = (double)1920/1080;
     const double fov = 90;
     const double z_near = 0.001;
-    const double z_far = 20;
+    const double z_far = 200;
     this->projectionMatrix = matrix(4, 4, std::initializer_list<double>{
         1.0 / (aspect * tan(fov * M_PI / 360)), 0, 0, 0,
         0, 1 / tan(fov * M_PI / 360), 0, 0,
@@ -155,7 +204,7 @@ int Scene::setViewportTransform() {
     assert(abs(aspect - width / height) <= 0.00001);
     this->viewportMatrix = matrix(4, 4, std::initializer_list<double>{
         width/2, 0, 0, x_min + width/2,
-        0, -height/2, 0, y_min + height/2,
+        0, height/2, 0, y_min + height/2,
         0, 0, 1, 0,
         0, 0, 0, 1
     });
