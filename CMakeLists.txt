@@ -12,12 +12,14 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x)
 FetchContent_MakeAvailable(SFML)
 
-include_directories(submodules/matrix/src src/Model src/Scene src/parser)
-link_directories(${CMAKE_SOURCE_DIR}/submodules/matrix)
+include_directories(submodules/matrix/src submodules/thread_pool/include src/Model src/Scene src/parser src/utils)
+link_directories(${CMAKE_SOURCE_DIR}/submodules/matrix ${CMAKE_SOURCE_DIR}/submodules/thread_pool)
 
-add_executable(${PROJECT_NAME} src/main.cpp src/Model/Model.hpp src/Model/Model.cpp src/Scene/Scene.hpp src/Scene/Scene.cpp src/parser/parser.hpp src/parser/parser.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE sfml-graphics sfml-audio sfml-window sfml-network sfml-system libsimplematrix.a)
+add_subdirectory(submodules/thread_pool)
+add_executable(${PROJECT_NAME} src/main.cpp src/Model/Model.hpp src/Model/Model.cpp src/Scene/Scene.hpp src/Scene/Scene.cpp src/parser/parser.hpp src/parser/parser.cpp src/utils/fps.hpp)
+target_link_libraries(${PROJECT_NAME} PRIVATE sfml-graphics sfml-audio sfml-window sfml-network sfml-system libsimplematrix.a TM)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+target_compile_options(${PROJECT_NAME} PRIVATE -march=native)
 
 if(WIN32)
     add_custom_command(
