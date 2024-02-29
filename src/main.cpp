@@ -12,51 +12,72 @@
 
 using namespace simple_matrix;
 
+/** Model file name*/
+const std::string objFileName = "/home/ilya/cprojects/cmake-sfml-project/resources/model2.obj";
+/** */
+const int32_t threadCount = 12;
+
+/** Window size credentials*/
+const uint32_t windowWidth = 1920;
+const uint32_t windowHeight = 1080;
+/** Title of the window*/
+const std::string windowTitle = "SFML works!";
+
+/**Model Zoom*/
+const double modelZoom = 0.6f;
+
 int main(int argc, char** argv)
 {
-    parser::ObjParser* modelParser = new parser::ObjParser("/home/ilya/cprojects/cmake-sfml-project/resources/model2.obj");
+    (void)argc, (void)argv;
+
+    parser::ObjParser* modelParser = new parser::ObjParser(objFileName);
+     /**Parsing model credentials*/
     auto model = modelParser->parse();
 
-    sf::RenderWindow window(sf::VideoMode(1920, 1080), "SFML works!");
-    sf::Clock clock;
+    sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), windowTitle);
 
-    bool is_pressed = false;
-    int prev_x_coo, x_coo, prev_y_coo, y_coo;
-    //double angleThetha = 0, anglePhi = 0;
+    /** Image to check the size of pixel aaray buffer*/
+    sf::Image dummy_screenshot;
+    dummy_screenshot.create(windowWidth, windowHeight, sf::Color::Transparent);
+    auto screenshotBufferSize = dummy_screenshot.getSize();
+
+    /** Task manager for concurrent scane model calculations*/
+    std::shared_ptr<TaskManager> sceneTaskManager = std::make_shared<TaskManager>(threadCount);
+
+    /** Scene*/
+    Scene Scene(sceneTaskManager, threadCount, std::move(model), modelZoom, screenshotBufferSize.y, screenshotBufferSize.x);
+
+    /** Mouse credentials*/
+    int isMousePressed = false;
+    std::pair<uint32_t, uint32_t> mouseCoordinates;
+    std::pair<uint32_t, uint32_t> operMouseCoordinates;
+
+    double angleThetha = 0, anglePhi = 0;
     double radius = 80.0;
 
-    sf::Image screenshot;
-    screenshot.create(window.getSize().x, window.getSize().y, sf::Color::Transparent);
-
-    const int32_t thread_count = 20;
-    std::shared_ptr<TaskManager> sharedTaskManager = std::make_shared<TaskManager>(thread_count);
-
-    Scene Scene(sharedTaskManager, thread_count, std::move(model), 0.6, screenshot);
-
+    /** Fps counter*/
     Fps fps;
+
     while (window.isOpen())
     {
         sf::Event event;
         while (window.pollEvent(event))
         {
+            switch (event.type)
+            {
+            case sf::Event::MouseButtonPressed:
+                isMousePressed = true;
+                mouseCoordinates = {event.mouseButton.x, event.mouseButton.y};
+                break;
+            
+            case sf::Event::MouseButtonReleased:
+                isMousePressed = false;
+                break;
 
-            if (event.type == sf::Event::MouseButtonPressed)
-            {
-                is_pressed = true;
-                prev_x_coo = event.mouseButton.x;
-                prev_y_coo = event.mouseButton.y;
-            }
-            else if (event.type == sf::Event::MouseButtonReleased) 
-            {
-                is_pressed = false;
-            }
-            else if (event.type == sf::Event::MouseMoved)
-            {
-                if (is_pressed) 
+            case sf::Event::MouseMoved:
+                if (isMousePressed) 
                 {
-                    Scene.transformed();
-                    x_coo = event.mouseMove.x;
-                    y_coo = event.mouseMove.y;
+                    operMouseCoordinates = {event.mouseMove.x, event.mouseMove.y};
 
                     // angleThetha -= (y_coo - prev_y_coo) / 720.0 * 2 * M_PI;
                     // anglePhi += (x_coo - prev_x_coo) / 1280.0 * 2 * M_PI;
@@ -68,10 +89,11 @@ int main(int argc, char** argv)
                     //     1.0
                     // });
 
-                    int xdel = x_coo - prev_x_coo;
-                    int ydel = y_coo - prev_y_coo;
-                    if (std::abs(xdel) > 0) {
-                        const double rad = -(xdel/10.0) * M_PI / 180.0;
+                    int xMouseDel = operMouseCoordinates.first - mouseCoordinates.first;
+                    int yMouseDel = operMouseCoordinates.second - mouseCoordinates.second;
+
+                    if (std::abs(xMouseDel) > 0) {
+                        const double rad = -(xMouseDel/10.0) * M_PI / 180.0;
                         Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
                             std::cos(rad),  0, sin(rad),        0,
                             0,              1, 0,               0,
@@ -79,8 +101,8 @@ int main(int argc, char** argv)
                             0,              0, 0,               1
                         }).transpose();
                     }
-                    if (std::abs(ydel) > 0) {
-                        const double rad = -(ydel/10.0) * M_PI / 180.0;
+                    if (std::abs(yMouseDel) > 0) {
+                        const double rad = -(yMouseDel/10.0) * M_PI / 180.0;
                         Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
                             1,              0,              0,                  0,
                             0,              std::cos(rad),  -std::sin(rad),     0,
@@ -89,11 +111,15 @@ int main(int argc, char** argv)
                         }).transpose();
                     }
 
-                    prev_x_coo = x_coo;
-                    prev_y_coo = y_coo;
+                    mouseCoordinates = operMouseCoordinates;
                 }
+                break;
+
+            default:
+                break;
             }
-            else if (event.type == sf::Event::Closed)
+          
+            if (event.type == sf::Event::Closed)
             {
                 window.close();
             }
@@ -110,7 +136,10 @@ int main(int argc, char** argv)
                         0, 0, 0, 1
                     }).transpose() ; 
                 }
-                
+
+                // if (del > 0)
+                //     radius -= 10;
+                // else radius += 10;
                 // Scene.eye = simple_matrix::matrix(1, 4, std::initializer_list<double>{
                 //     radius * std::sin(angleThetha) * std::cos(anglePhi),
                 //     radius * std::cos(angleThetha),
@@ -122,69 +151,9 @@ int main(int argc, char** argv)
 
         Scene.fitTheClock();
         Scene.drawUseBuffer(window);
-        window.display();
         fps.update();
         std::cout << "fps: " << fps.get() << std::endl;
     }
     
     return 0;
 }
-
-#if 0
-            if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) // вокруг y
-            {
-                const double rad = 5 * M_PI / 180;
-                std::cout << Scene.eye << std::endl;
-                Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
-                    std::cos(rad),  0, sin(rad),        0,
-                    0,              1, 0,               0,
-                    -std::sin(rad), 0, std::cos(rad),   0,
-                    0,              0, 0,               1
-                }).transpose();
-            }
-            else if (sf::Mouse::isButtonPressed(sf::Mouse::Right)) //вокруг z
-            {
-                const double rad = 5 * M_PI / 180;
-                std::cout << Scene.eye << std::endl;
-                Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
-                    std::cos(rad),  -sin(rad),      0,      0,
-                    std::sin(rad),  std::cos(rad),  0,      0,
-                    0,              0,              1,      0,
-                    0,              0,              0,      1
-                }).transpose();
-            }
-            else if (sf::Mouse::isButtonPressed(sf::Mouse::Middle))
-            {
-                const double rad = 5 * M_PI / 180;
-                std::cout << Scene.eye << std::endl;
-                Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
-                    1,              0,              0,                  0,
-                    0,              std::cos(rad),  -std::sin(rad),     0,
-                    0,              std::sin(rad),  std::cos(rad),      0,
-                    0,              0,              0,                  1
-                }).transpose();
-            }
-            // int xdel = x_coo - prev_x_coo;
-                // int ydel = y_coo - prev_y_coo;
-                // if (std::abs(xdel) > 0) {
-                //     const double rad = -(xdel/10) * M_PI / 180;
-                //     std::cout << Scene.eye << std::endl;
-                //     Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
-                //         std::cos(rad),  0, sin(rad),        0,
-                //         0,              1, 0,               0,
-                //         -std::sin(rad), 0, std::cos(rad),   0,
-                //         0,              0, 0,               1
-                //     }).transpose();
-                // }
-                // if (std::abs(ydel) > 0) {
-                //     const double rad = -(ydel/10) * M_PI / 180;
-                //     std::cout << Scene.eye << std::endl;
-                //     Scene.eye = Scene.eye * simple_matrix::matrix(4, 4, std::initializer_list<double>{
-                //         1,              0,              0,                  0,
-                //         0,              std::cos(rad),  -std::sin(rad),     0,
-                //         0,              std::sin(rad),  std::cos(rad),      0,
-                //         0,              0,              0,                  1
-                //     }).transpose();
-                //     std::cout << Scene.eye << std::endl;
-                // }
-#endif

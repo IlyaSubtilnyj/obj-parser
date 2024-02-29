@@ -52,6 +52,24 @@ private:
     simple_matrix::matrix* _output_array;
 };
 
+class ClearImageTask : public TaskType {
+public:
+    ClearImageTask(int imageWidth, int ImageHeight, concurrent_queue<std::shared_ptr<TaskType>>* queue) 
+        : TaskType(queue), _imageWidth(imageWidth), _imageHeight(ImageHeight)
+    {}
+    unsigned long virtual one_thread_method(void*) override {
+        _image.create(_imageWidth, _imageHeight, sf::Color::Black);
+        return 0;
+    }
+    sf::Image getImage() {
+        return std::move(_image);
+    }
+private:
+    sf::Image _image;
+    int _imageWidth;
+    int _imageHeight;
+};
+
 class Scene: public sf::Drawable, public Consumer
  {
     public:
@@ -65,11 +83,14 @@ class Scene: public sf::Drawable, public Consumer
         const simple_matrix::matrix up;
         const simple_matrix::matrix target;
         const double schera_radius;
-        sf::Image& gTarget;
+        sf::Image workTarget;
+        int targetNum;
+        struct concurrent_queue<std::shared_ptr<TaskType>> ClearTasksQueue;
         int imageHeight, imageWidth;
         int32_t _thread_count;
+        int already;
     public:
-        Scene(std::shared_ptr<TaskManager> manager, int32_t thread_count, std::shared_ptr<ModelInterface> modele, double scaleFactor, sf::Image& image)
+        Scene(std::shared_ptr<TaskManager> manager, int32_t thread_count, std::shared_ptr<ModelInterface> modele, double scaleFactor, int image_height, int image_width)
         :   
             Consumer(manager),
             _thread_count(thread_count),
@@ -80,9 +101,11 @@ class Scene: public sf::Drawable, public Consumer
             up(1, 4, std::initializer_list<double>{0, 1, 0, 1}),
             target(1, 4, std::initializer_list<double>{0, 0, 0, 1}),
             is_transformed(false),
-            gTarget(image),
-            imageHeight(image.getSize().y),
-            imageWidth(image.getSize().x)
+            targetNum(0),
+            //workTarget(image),
+            imageHeight(image_height),
+            imageWidth(image_width),
+            already(0)
         {   
             realtimeCoordinates = new simple_matrix::matrix[_modele->getVertexes().size()];
             eye = simple_matrix::matrix(1, 4, std::initializer_list<double>{0, 0, schera_radius, 1});
@@ -110,6 +133,12 @@ class Scene: public sf::Drawable, public Consumer
             setCameraProps();
             setProjectionTransform();
             setViewportTransform();
+
+            for (size_t i = 0; i < 3; i++)
+            {
+                manager->add_task(ClearImageTask(imageWidth, imageHeight, &ClearTasksQueue));
+            }
+            
         }
 
         ~Scene() {
@@ -175,5 +204,6 @@ class Scene: public sf::Drawable, public Consumer
         int isTransformed() const;
     protected:
         void Transform();
+    public:
         void line(int x0, int y0, int x1, int y1);
 };

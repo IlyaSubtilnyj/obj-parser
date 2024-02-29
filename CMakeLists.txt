@@ -12,6 +12,10 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x)
 FetchContent_MakeAvailable(SFML)
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+endif()
+
 include_directories(submodules/matrix/src submodules/thread_pool/include src/Model src/Scene src/parser src/utils)
 link_directories(${CMAKE_SOURCE_DIR}/submodules/matrix ${CMAKE_SOURCE_DIR}/submodules/thread_pool)
 

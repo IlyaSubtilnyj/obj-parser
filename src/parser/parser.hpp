@@ -63,7 +63,7 @@ namespace parser {
             const std::string obj_file_name;
         public:
             ObjParser(std::string&& object_file);
-            ObjParser(std::string& object_file);
+            ObjParser(const std::string& object_file);
             /**
              * @brief Parse object file (.obj) and store vertexes and faces;
              * @param none

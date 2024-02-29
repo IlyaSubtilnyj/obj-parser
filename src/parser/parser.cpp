@@ -58,7 +58,7 @@ namespace parser {
         pipeline_init();
     }
 
-    ObjParser::ObjParser(std::string& object_file)
+    ObjParser::ObjParser(const std::string& object_file)
     : obj_file_name(object_file)
     {
         pipeline_init();

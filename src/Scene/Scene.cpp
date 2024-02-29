@@ -105,7 +105,7 @@ void Scene::fitTheClock() {
 }
 
 inline void Scene::line(int x0, int y0, int x1, int y1) {
-    const static sf::Color color = sf::Color::White;
+    const static sf::Color color = sf::Color(sf::Color::White);
     bool steep = false;
     if (std::abs(x0-x1)<std::abs(y0-y1)) {
         std::swap(x0, y0);
@@ -125,11 +125,11 @@ inline void Scene::line(int x0, int y0, int x1, int y1) {
         if (steep) {
             if ((y < 0) || (y >= imageWidth)) return;
             if ((x < 0) || (x >= imageHeight)) return;
-            gTarget.setPixel(y, x, color);
+            workTarget.setPixel(y, x, color);
         } else {
             if ((x < 0) || (x >= imageWidth)) return;
             if ((y < 0) || (y >= imageHeight)) return;
-            gTarget.setPixel(x, y, color);
+            workTarget.setPixel(x, y, color);
         }
         error2 += derror2;
 
@@ -139,54 +139,6 @@ inline void Scene::line(int x0, int y0, int x1, int y1) {
         }
     }
 }
-
-class ClearImageTask : public TaskType {
-public:
-    ClearImageTask(sf::Image& image, concurrent_queue<std::shared_ptr<TaskType>>* queue) 
-        : TaskType(queue), _image(image)
-    {}
-    unsigned long virtual one_thread_method(void*) override {
-        const static sf::Color color = sf::Color::Black;
-        for (size_t i = 0; i < _image.getSize().x; i++)
-        {
-            for (size_t j = 0; j < _image.getSize().y; j++)
-            {
-                _image.setPixel(i, j, color);
-            }
-        }
-        return 0;
-    }
-private:
-    sf::Image& _image;
-};
-
-void Scene::drawUseBuffer(sf::RenderWindow& window) {
-
-    auto& daFaces = _modele->getFaces();
-    for (int i = 0; i < daFaces.size(); i++)
-    {
-        auto& oper_face = daFaces.at(i);
-        auto oper_face_vertex_count = (oper_face[3] == 0) ? 3 : oper_face.size();
-        int j;
-        for (j = 1; j < oper_face_vertex_count - 1; j++)
-        {
-            line(realtimeCoordinates[oper_face[j - 1] - 1](0, 0), realtimeCoordinates[oper_face[j - 1] - 1](1, 0),
-             realtimeCoordinates[oper_face[j] - 1](0, 0), realtimeCoordinates[oper_face[j] - 1](1, 0));
-        }
-        line(realtimeCoordinates[oper_face[j - 1] - 1](0, 0), realtimeCoordinates[oper_face[j - 1] - 1](1, 0),
-             realtimeCoordinates[oper_face[0] - 1](0, 0), realtimeCoordinates[oper_face[0] - 1](1, 0));
-    }
-
-    this->texture.loadFromImage(gTarget);
-    this->sprite.setTexture(this->texture);
-    window.draw(sprite);
-    auto task = ClearImageTask(std::ref(gTarget), &complitedTasksQueue);
-    manager->try_add_task(task);
-    //complitedTasksQueue.pop();
-}
-
-inline void Scene::transformed() { is_transformed = !is_transformed; }
-inline int Scene::isTransformed() const { return is_transformed; }
 
 std::vector<std::pair<int, int>> sliceVector(int size, int n) {
     std::vector<std::pair<int, int>> result;
@@ -214,49 +166,104 @@ std::vector<std::pair<int, int>> sliceVector(int size, int n) {
     return result;
 }
 
+class DrawLineImageTask : public TaskType {
+public:
+    DrawLineImageTask(int32_t index, int32_t size, Scene& scene, const std::vector<face_t>& array, simple_matrix::matrix* _realtimeCoordinates, concurrent_queue<std::shared_ptr<TaskType>>* queue) 
+        : TaskType(queue), _index(index), _size(size), daFaces(array), realtimeCoordinates(_realtimeCoordinates), _scene(scene)
+    {}
+    unsigned long virtual one_thread_method(void*) override {
+        for (size_t i = _index; i < _index + _size; i++)
+        {
+            auto& oper_face = daFaces.at(i);
+            auto oper_face_vertex_count = (oper_face[3] == 0) ? 3 : oper_face.size();
+            int j;
+            for (j = 1; j < oper_face_vertex_count - 1; j++)
+            {
+                _scene.line(realtimeCoordinates[oper_face[j - 1] - 1](0, 0), realtimeCoordinates[oper_face[j - 1] - 1](1, 0),
+                realtimeCoordinates[oper_face[j] - 1](0, 0), realtimeCoordinates[oper_face[j] - 1](1, 0));
+            }
+            _scene.line(realtimeCoordinates[oper_face[j - 1] - 1](0, 0), realtimeCoordinates[oper_face[j - 1] - 1](1, 0),
+                realtimeCoordinates[oper_face[0] - 1](0, 0), realtimeCoordinates[oper_face[0] - 1](1, 0));
+        }   
+        return 0;
+    }
+private:
+    Scene& _scene;
+    int32_t _index;
+    int32_t _size;
+    const std::vector<face_t>& daFaces;
+    simple_matrix::matrix* realtimeCoordinates;
+};
+
+void Scene::drawUseBuffer(sf::RenderWindow& window) {
+
+    auto& daFaces = _modele->getFaces();
+
+    auto sliced = sliceVector(daFaces.size(), this->_thread_count + 7);
+
+    workTarget = static_cast<ClearImageTask*>(ClearTasksQueue.pop().get())->getImage();
+
+    /*Create tasks*/
+    std::vector<DrawLineImageTask> tasks;
+    for (size_t i = 0; i < this->_thread_count + 7; i++)
+    {
+        tasks.emplace_back(DrawLineImageTask(sliced.at(i).first, sliced.at(i).second, *this, daFaces, realtimeCoordinates, &complitedTasksQueue));
+    }
+
+    /*Insert tasks into manager*/
+    for (size_t i = 0; i < this->_thread_count + 7; i++)
+    {
+        manager->add_task(tasks.at(i));
+    }
+
+    /*Gather results*/
+    std::vector<SceneTask> results;
+    for (size_t i = 0; i < this->_thread_count + 7; i++)
+    {
+        complitedTasksQueue.pop();
+    }
+
+    this->texture.loadFromImage(workTarget);
+    this->sprite.setTexture(this->texture);
+    window.draw(sprite);
+    window.display();
+    manager->add_task(ClearImageTask(imageWidth, imageHeight, &ClearTasksQueue));
+    
+}
+
+inline void Scene::transformed() { is_transformed = !is_transformed; }
+inline int Scene::isTransformed() const { return is_transformed; }
+
 void Scene::Transform() {
 
-        auto sliced = sliceVector(modelVertexes.size(), this->_thread_count);
+        auto sliced = sliceVector(modelVertexes.size(), this->_thread_count  + 7);
 
         /*Create tasks*/
         std::vector<SceneTask> tasks;
-        for (size_t i = 0; i < this->_thread_count; i++)
+        for (size_t i = 0; i < this->_thread_count + 7; i++)
         {
             tasks.emplace_back(SceneTask(sliced.at(i).first, sliced.at(i).second, modelVertexes, this->realtimeCoordinates, worldTransform, cameraTransform, projectionMatrix,
             viewportMatrix, &complitedTasksQueue));
         }
 
         /*Insert tasks into manager*/
-        for (size_t i = 0; i < this->_thread_count; i++)
+        for (size_t i = 0; i < this->_thread_count + 7; i++)
         {
-            manager->try_add_task(tasks.at(i));
+            manager->add_task(tasks.at(i));
         }
 
         /*Gather results*/
         std::vector<SceneTask> results;
-        for (size_t i = 0; i < this->_thread_count; i++)
+        for (size_t i = 0; i < this->_thread_count + 7; i++)
         {
             complitedTasksQueue.pop();
         }
         int debug_dummy{};
-#if 0
-        change_matrix_vec.clear(); 
-        simple_matrix::matrix result;
-        for (int i = 0; i < modelVertexes.size(); i++) {
-            result = (projectionMatrix * (cameraTransform * (worldTransform * modelVertexes.at(i))));
-            _mm256_storeu_pd(result.begin(), 
-                divide_by_scalar(
-                    _mm256_loadu_pd(result.begin()), 
-                    result.get(3, 0)
-                ));
-            change_matrix_vec.emplace_back(viewportMatrix * result);
-        }
-#endif
 }
 
 matrix vectorNormalize(matrix&& vector) {
     double magnitude{};
-    for (auto i = vector.begin(); i < vector.end() - 1; i++)
+    for (auto i = vector.begin(); i < vector.begin() + 3; i++)
     {
         magnitude += powf64(*i, 2);
     }
@@ -272,7 +279,7 @@ matrix vectorMultiplication(const matrix& vector1, const matrix& vector2) {
 
 double scalarVectorMultiplication(const matrix& vector1, const matrix& vector2) {
     double result{};
-    for (size_t i = 0; i < vector1.n() - 1; i++)
+    for (size_t i = 0; i < 3; i++)
         result += vector1.get(0, i) * vector2.get(0, i);
     return result;
 }
@@ -291,9 +298,9 @@ void Scene::setCameraProps() {
 
 void Scene::setProjectionTransform() {
     const double aspect = (double)1920/1080;
-    const double fov = 120;
-    const double z_near = 50;
-    const double z_far = 200;
+    const double fov = 90;
+    const double z_near = 0.01;
+    const double z_far = 30;
     this->projectionMatrix = matrix(4, 4, std::initializer_list<double>{
         1.0 / (aspect * tan(fov * M_PI / 360)), 0, 0, 0,
         0, 1 / tan(fov * M_PI / 360), 0, 0,
