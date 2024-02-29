@@ -1,3 +1,6 @@
 [submodule "submodules/matrix"]
 	path = submodules/matrix
 	url = https://github.com/torin-carey/simple-matrix.git
+[submodule "submodules/thread_pool"]
+	path = submodules/thread_pool
+	url = https://github.com/IlyaSubtilnyj/TM.git

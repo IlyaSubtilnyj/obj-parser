@@ -4,6 +4,41 @@
 #include <boost/regex.hpp>
 #include <fstream>
 
+const vectore_store_t& ModelInterface::getVertexes() const {
+    return vertexStore; 
+}
+const face_store_t& ModelInterface::getFaces() const {
+    return faceStore; 
+}
+
+void StubModel::stubfillVertexesProperty() {
+    vertexStore.push_back({1, 0, 0, 1});
+    vertexStore.push_back({1, 1, 0, 1});
+    vertexStore.push_back({0, 1, 0, 1});
+    vertexStore.push_back({0, 0, 0, 1});
+
+    vertexStore.push_back({1, 0, 1, 1});
+    vertexStore.push_back({0, 0, 1, 1});
+    vertexStore.push_back({0, 0, 0, 1});
+    vertexStore.push_back({1, 0, 0, 1});
+
+    vertexStore.push_back({1, 0, 1, 1});
+    vertexStore.push_back({1, 1, 0, 1});
+    vertexStore.push_back({0, 1, 0, 1});
+    vertexStore.push_back({0, 0, 1, 1});
+
+    vertexStore.push_back({2, 0, -2, 1});
+    vertexStore.push_back({-2, 0, -2, 1});
+    vertexStore.push_back({-2, 0, 2, 1});
+    vertexStore.push_back({2, 0, 2, 1});
+}
+void StubModel::stubfillFacesProperty() {
+    faceStore.push_back({1, 2, 3, 4});
+    faceStore.push_back({5, 6, 7, 8});
+    faceStore.push_back({9, 10, 11, 12});
+    faceStore.push_back({13, 14, 15, 16});
+}
+
 namespace parser {
 
     void Pipeline::bind(std::function<bool(std::string)> pipe) {
@@ -23,13 +58,14 @@ namespace parser {
         pipeline_init();
     }
 
-    ObjParser::ObjParser(std::string& object_file)
+    ObjParser::ObjParser(const std::string& object_file)
     : obj_file_name(object_file)
     {
         pipeline_init();
     }
 
-    void ObjParser::parse() {
+    std::shared_ptr<ModelInterface> ObjParser::parse() {
+        this->_model = std::make_shared<ObjModel>();
         std::string line;
         std::ifstream file(this->obj_file_name);
         if (file.is_open()) {
@@ -38,6 +74,7 @@ namespace parser {
             }
             file.close();
         }
+        return _model;
     }
 
     void ObjParser::parseAsVertex(std::string& fstring, vectore_store_t& store) {
@@ -88,28 +125,28 @@ namespace parser {
     void ObjParser::pipeline_init() {
         this->bind([&](std::string fstring){
             if (boost::starts_with(fstring, "v ")) {
-                this->parseAsVertex(fstring, this->vertexStore);
+                this->parseAsVertex(fstring, this->_model->vertexStore);
                 return true;
             }
             return false;
         });
         this->bind([&](std::string fstring){
             if (boost::starts_with(fstring, "vt ")) {
-                this->parseAsVertex(fstring, this->textureStore);
+                this->parseAsVertex(fstring, this->_model->textureStore);
                 return true;
             }
             return false;
         });
         this->bind([&](std::string fstring){
             if (boost::starts_with(fstring, "vn ")) {
-                this->parseAsVertex(fstring, this->normalStore);
+                this->parseAsVertex(fstring, this->_model->normalStore);
                 return true;
             }
             return false;
         });
         this->bind([&](std::string fstring){
             if (boost::starts_with(fstring, "f ")) {
-                this->parseAsFace(fstring, this->faceStore);
+                this->parseAsFace(fstring, this->_model->faceStore);
                 return true;
             }
             return false;

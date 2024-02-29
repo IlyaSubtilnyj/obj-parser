@@ -2,30 +2,113 @@
 
 #include <atomic>
 #include <functional>
+#include <math.h>
 #include <memory>
 #include <SFML/Graphics.hpp>
 #include <SFML/System.hpp>
 #include <vector>
 #include <thread>
 #include <future>
+#include <x86intrin.h>
+#include <emmintrin.h>
 
 #include "matrix.hpp"
-#include "Model.hpp"
+#include "../parser/parser.hpp"
+#include "TMConsumer.hpp"
 
-class Scene: public sf::Drawable
+// Helper function to divide a vector by a scalar value using SSE intrinsics
+__m256d divide_by_scalar(__m256d vector, double scalar);
+
+class SceneTask : public TaskType {
+public:
+    SceneTask(int32_t index, int32_t size, std::vector<simple_matrix::matrix>& array, simple_matrix::matrix* output_array, simple_matrix::matrix& worldTransform, simple_matrix::matrix& cameraTransform,
+    simple_matrix::matrix& projectionMatrix, simple_matrix::matrix& viewportMatrix,
+     concurrent_queue<std::shared_ptr<TaskType>>* queue) 
+        : TaskType(queue), _index(index), _size(size), _array(array), _output_array(output_array), _worldTransform(worldTransform), _cameraTransform(cameraTransform),
+        _projectionMatrix(projectionMatrix), _viewportMatrix(viewportMatrix)
+    {}
+    unsigned long virtual one_thread_method(void*) override {
+        simple_matrix::matrix result;
+        for (size_t i = _index; i < _index + _size; i++)
+        {
+            result = (_projectionMatrix * (_cameraTransform * (_worldTransform * _array.at(i))));
+            _mm256_storeu_pd(result.begin(), 
+                divide_by_scalar(
+                    _mm256_loadu_pd(result.begin()), 
+                    result.get(3, 0)
+                ));
+            _output_array[i] = _viewportMatrix * result;
+        }   
+        return 0;
+    }
+private:
+    int32_t _index;
+    int32_t _size;
+    std::vector<simple_matrix::matrix>& _array;
+    simple_matrix::matrix& _worldTransform;
+    simple_matrix::matrix& _cameraTransform;
+    simple_matrix::matrix& _projectionMatrix;
+    simple_matrix::matrix& _viewportMatrix;
+    simple_matrix::matrix* _output_array;
+};
+
+class ClearImageTask : public TaskType {
+public:
+    ClearImageTask(int imageWidth, int ImageHeight, concurrent_queue<std::shared_ptr<TaskType>>* queue) 
+        : TaskType(queue), _imageWidth(imageWidth), _imageHeight(ImageHeight)
+    {}
+    unsigned long virtual one_thread_method(void*) override {
+        _image.create(_imageWidth, _imageHeight, sf::Color::Black);
+        return 0;
+    }
+    sf::Image getImage() {
+        return std::move(_image);
+    }
+private:
+    sf::Image _image;
+    int _imageWidth;
+    int _imageHeight;
+};
+
+class Scene: public sf::Drawable, public Consumer
  {
+    public:
+        simple_matrix::matrix eye;
     protected:
         const int _n;
         int _elapsed;
     protected:
-        std::unique_ptr<ModelInterface> _modele;
+        std::shared_ptr<ModelInterface> _modele;
+    protected:
+        const simple_matrix::matrix up;
+        const simple_matrix::matrix target;
+        const double schera_radius;
+        sf::Image workTarget;
+        int targetNum;
+        struct concurrent_queue<std::shared_ptr<TaskType>> ClearTasksQueue;
+        int imageHeight, imageWidth;
+        int32_t _thread_count;
+        int already;
     public:
-        Scene(std::unique_ptr<ModelInterface> modele, double scaleFactor)
+        Scene(std::shared_ptr<TaskManager> manager, int32_t thread_count, std::shared_ptr<ModelInterface> modele, double scaleFactor, int image_height, int image_width)
         :   
+            Consumer(manager),
+            _thread_count(thread_count),
             _n(4),
             _elapsed(0),
-            _modele(std::move(modele))
-        {    
+            _modele(std::move(modele)), 
+            schera_radius(80.0),
+            up(1, 4, std::initializer_list<double>{0, 1, 0, 1}),
+            target(1, 4, std::initializer_list<double>{0, 0, 0, 1}),
+            is_transformed(false),
+            targetNum(0),
+            //workTarget(image),
+            imageHeight(image_height),
+            imageWidth(image_width),
+            already(0)
+        {   
+            realtimeCoordinates = new simple_matrix::matrix[_modele->getVertexes().size()];
+            eye = simple_matrix::matrix(1, 4, std::initializer_list<double>{0, 0, schera_radius, 1});
             worldTransform = simple_matrix::matrix({static_cast<simple_matrix::uint>(_n), static_cast<simple_matrix::uint>(_n),
             std::initializer_list<double>{
                 scaleFactor, 0, 0, 0,
@@ -41,9 +124,25 @@ class Scene: public sf::Drawable
                 );
             }
 
-            setCameraProps(0, 5);
+            change_matrix_vec.reserve(_modele->getVertexes().size());
+
+            cameraTransform = simple_matrix::matrix(4, 4);
+            projectionMatrix = simple_matrix::matrix(4, 4);
+            viewportMatrix = simple_matrix::matrix(4, 4);
+
+            setCameraProps();
             setProjectionTransform();
             setViewportTransform();
+
+            for (size_t i = 0; i < 3; i++)
+            {
+                manager->add_task(ClearImageTask(imageWidth, imageHeight, &ClearTasksQueue));
+            }
+            
+        }
+
+        ~Scene() {
+            delete[] realtimeCoordinates;
         }
 
 
@@ -63,16 +162,16 @@ class Scene: public sf::Drawable
             }
 
             void then(std::function<void()> callback) {
-                accamulate_future.get();
+                accamulate_future.wait();
                 callback();
             }
         };
 
     protected:
 
-        int setCameraProps(double xpos, double zpos);
-        int setProjectionTransform();
-        int setViewportTransform();
+        void setCameraProps();
+        void setProjectionTransform();
+        void setViewportTransform();
         
         simple_matrix::matrix worldTransform;
         std::vector<simple_matrix::matrix> modelVertexes;
@@ -81,20 +180,30 @@ class Scene: public sf::Drawable
         simple_matrix::matrix projectionMatrix;
         simple_matrix::matrix viewportMatrix;
 
+        simple_matrix::matrix* realtimeCoordinates;
         std::vector<simple_matrix::matrix> change_matrix_vec;
         std::vector<std::vector<sf::Vertex>> draw_coordinates;
     protected:
+        sf::Image screenshot;
+        sf::Texture texture;
+        sf::Sprite sprite;
+    public:
         void fitTheClock();
     public:
-        virtual GatherScenePromise turnTheClock(sf::Time);
+        void turnTheClock(sf::Time timer);
+        Scene::GatherScenePromise turkTheClockDelay(sf::Time time);
         virtual void takeTheStage(sf::RenderTarget& stage);
+        void drawUseBuffer(sf::RenderWindow& window);
     protected:
         virtual void draw(sf::RenderTarget& target, sf::RenderStates states) const;
 
     private:
         bool is_transformed;
-    protected:
+    public:
         void transformed();
         int isTransformed() const;
+    protected:
         void Transform();
+    public:
+        void line(int x0, int y0, int x1, int y1);
 };
